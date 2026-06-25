@@ -1,0 +1,194 @@
+REvenge Installer - Auto-Delete Mechanism
+
+HOW IT WORKS
+
+Overview
+The installer automatically deletes the downloaded setup file (REvenge_Setup_1.5.0.exe) after the installation process completes and the setup window closes.
+
+Step-by-Step Process
+
+1. Download & Launch Phase
+
+User clicks "Download & Install" button
+   |
+   V
+Multi-threaded download starts (4 concurrent threads)
+   |
+   V
+File saved to: C:\Users\[Username]\Downloads\REvenge_Setup_1.5.0.exe
+   |
+   V
+When download completes -> ShellExecute opens the setup file
+
+
+2. Monitoring Thread Creation
+
+When the setup file is successfully downloaded and launched, a separate detached thread is spawned that:
+
+std::thread([hw,filePath=g_savePath](){
+    WatchAndDeleteFile(filePath);
+    PostMessage(hw, WM_CLOSE, 0, 0);
+}).detach();
+
+This thread:
+- Captures the file path (g_savePath)
+- Captures the main window handle (hw)
+- Runs independently of the main application
+- Will close the installer after the deletion is complete
+
+
+3. Process Monitoring
+
+The WatchAndDeleteFile() function performs the following steps:
+
+Step 1: Wait for setup process to start
+   Sleep(2000);
+   This gives the operating system time to launch the REvenge_Setup.exe process
+
+Step 2: Find REvenge_Setup_1.5.0.exe by name
+   HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+   Iterate through all running processes
+   Search for process named "REvenge_Setup_1.5.0.exe"
+   Get its Process ID (PID)
+   Close snapshot handle
+
+Step 3: Wait for process to close
+   HANDLE hProc = OpenProcess(SYNCHRONIZE, FALSE, targetPid);
+   WaitForSingleObject(hProc, INFINITE);
+   This blocks execution until the user closes the setup window
+   Once the process exits, execution continues
+   CloseHandle(hProc);
+
+Step 4: Delete the file
+   Sleep(2000);
+   This waits 2 seconds to let the operating system release file locks
+   DeleteFileW(filePath.c_str());
+   Permanently deletes the file from disk
+
+
+4. Timeline Visualization
+
+T=0s     User clicks Download button
+
+T=0-30s  4 threads download file in parallel
+         Thread 1: downloads bytes 0-25MB
+         Thread 2: downloads bytes 25-50MB
+         Thread 3: downloads bytes 50-75MB
+         Thread 4: downloads bytes 75-100MB
+
+T=30s    Download complete
+         ShellExecute -> REvenge_Setup.exe launches
+         Monitoring thread STARTS (independent)
+
+T=32s    Setup window opens (user sees installer)
+         
+         User performs installation...
+
+T=120s   User closes setup window
+         REvenge_Setup.exe process terminates
+
+T=122s   Monitoring thread detects process exit
+         Waits 2 seconds for file locks to release
+         Deletes REvenge_Setup_1.5.0.exe
+
+T=123s   File is gone from Downloads folder
+         Main installer also closes
+
+
+KEY FEATURES
+
+No Console Window
+Uses native Win32 API directly, not cmd.exe
+
+No User Interaction
+Completely automatic and silent, zero user action required
+
+Reliable Timing
+Uses WaitForSingleObject() which waits until the actual process exits, not a timer
+
+Unicode Support
+Handles file paths with Cyrillic characters, spaces, and special characters
+
+Independent Execution
+Detached thread survives application closure
+
+Process Detection
+Searches by exact executable name using CreateToolhelp32Snapshot
+
+
+FILE PATH HANDLING
+
+Input:  C:\Users\Пользователь\Downloads\REvenge_Setup_1.5.0.exe
+
+Features:
+- Supports Cyrillic characters
+- Supports spaces in path
+- Supports UNC network paths
+- Supports very long paths
+
+Deletion: Guaranteed at exact same path where file was downloaded
+
+
+ERROR HANDLING
+
+Scenario 1: Process not found in 60 seconds
+Default behavior: Wait 60 seconds, then delete anyway
+This prevents orphaned files if setup fails to launch
+
+Scenario 2: File locked by antivirus
+Waits 2 additional seconds after process exit
+This gives the operating system time to release file handles
+
+Scenario 3: Path invalid or corrupted
+DeleteFileW() silently fails without showing error to user
+In this case, the setup file wasn't downloaded anyway
+
+
+TECHNICAL STACK
+
+Language: C++17
+API: Windows Win32 API (no external dependencies)
+Threading: std::thread with lambda capture
+Process Management: CreateToolhelp32Snapshot, OpenProcess, WaitForSingleObject
+File Operations: Native DeleteFileW() function
+Compatibility: Windows 10, Windows 11
+
+
+WHY THIS APPROACH
+
+Advantages:
+- Runs in background without showing any UI
+- No cmd.exe window spawned
+- Truly waits for process exit (not time-based guessing)
+- Works with any file path encoding
+- No external tools required
+- Simple, reliable, foolproof
+
+Alternatives that were rejected:
+- cmd.exe /c timeout && del
+  Problem: Shows console window, time-based deletion
+  
+- Registry cleanup
+  Problem: Overkill, requires admin permissions
+  
+- Batch file
+  Problem: Requires creating temporary file, less reliable
+  
+- Scheduled task
+  Problem: Requires elevated privileges, too complex
+
+
+SUMMARY
+
+The auto-delete mechanism works by:
+
+1. Starting a separate thread when download completes
+2. Thread finds the REvenge_Setup_1.5.0.exe process by name
+3. Thread waits until user closes the setup window
+4. Process detection works even if main installer window closes
+5. Once setup process exits, waits 2 seconds for file locks
+6. Permanently deletes the downloaded file
+7. Returns control to close the main installer window
+
+This ensures that the temporary setup file never remains on the user's computer, saving disk space and keeping the system clean.
+

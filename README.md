@@ -26,7 +26,7 @@ Professional application installer for REvenge v1.5.0 with modern macOS-style UI
 
 Pre-built executable: [REvenge_Setup_1.5.0.exe](https://github.com/RevengeUpdater/REvenge-Releases/releases/download/v1.5.0/REvenge_Setup_1.5.0.exe)
 
-Source code available in [REvenge-Installer-Source](./REvenge-Installer-Source/) folder
+Source code available in [REvenge-Installer-Source](./REvenge-Installer) folder
 
 ## Build from Source
 
